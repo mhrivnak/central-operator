@@ -1,0 +1,9 @@
+apiVersion: hrivnak.org/v1alpha1
+kind: Watch
+metadata:
+  name: example
+spec:
+  serviceName: memweb-reconciler
+  group: cache.example.com
+  version: v1alpha1
+  kind: Memcached
