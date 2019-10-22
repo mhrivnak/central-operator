@@ -28,7 +28,7 @@ var log = logf.Log.WithName("controller_api")
 
 // Add creates a new Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func Add(mgr manager.Manager, watch *hrivnakv1alpha1.Watch) (*APIReconciler, error) {
+func Add(mgr manager.Manager, watch *hrivnakv1alpha1.Watch) (controller.Controller, *Reconciler, error) {
 	scheme := mgr.GetScheme()
 	_, err := scheme.New(watch.Spec.GVK())
 	if runtime.IsNotRegisteredError(err) {
@@ -40,36 +40,57 @@ func Add(mgr manager.Manager, watch *hrivnakv1alpha1.Watch) (*APIReconciler, err
 		})
 	} else if err != nil {
 		log.Error(err, "")
-		return nil, err
+		return nil, nil, err
 	}
 
-	reconciler := &APIReconciler{
+	reconciler := &Reconciler{
 		client:           mgr.GetClient(),
 		scheme:           mgr.GetScheme(),
 		serviceName:      watch.Spec.ServiceName,
 		groupVersionKind: watch.Spec.GVK(),
 	}
 
+	// Add secondary watches to the scheme
+	for _, ownedWatch := range watch.Spec.OwnedWatches {
+		owned := &unstructured.Unstructured{}
+		owned.SetGroupVersionKind(ownedWatch)
+		reconciler.scheme.AddKnownTypes(ownedWatch.GroupVersion(), owned)
+	}
+
 	// Create a new controller
 	c, err := controller.New(fmt.Sprintf("%v-controller", strings.ToLower(watch.Spec.GVK().String())), mgr, controller.Options{Reconciler: reconciler})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
+	// Watch the primary resource
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(watch.Spec.GVK())
 	if err = c.Watch(&source.Kind{Type: u}, &handler.EnqueueRequestForObject{}, predicate.GenerationChangedPredicate{}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return reconciler, nil
+	// Watch any secondary resources
+	for _, ownedWatch := range watch.Spec.OwnedWatches {
+		owned := &unstructured.Unstructured{}
+		owned.SetGroupVersionKind(ownedWatch)
+
+		if err = c.Watch(&source.Kind{Type: owned}, &handler.EnqueueRequestForOwner{
+			IsController: true,
+			OwnerType:    u,
+		}); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	return c, reconciler, nil
 }
 
-// blank assignment to verify that APIReconciler implements reconcile.Reconciler
-var _ reconcile.Reconciler = &APIReconciler{}
+// blank assignment to verify that Reconciler implements reconcile.Reconciler
+var _ reconcile.Reconciler = &Reconciler{}
 
-// APIReconciler reconciles a generic resource by calling an API
-type APIReconciler struct {
+// Reconciler reconciles a generic resource by calling an API
+type Reconciler struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
 	client           client.Client
@@ -79,7 +100,7 @@ type APIReconciler struct {
 }
 
 // Reconcile by calling an API
-func (r *APIReconciler) Reconcile(request reconcile.Request) (reconcile.Result, error) {
+func (r *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, error) {
 	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
 	reqLogger.Info("Reconciling with API")
 

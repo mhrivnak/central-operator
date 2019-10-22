@@ -7,3 +7,7 @@ spec:
   group: cache.example.com
   version: v1alpha1
   kind: Memcached
+  ownedWatches:
+    - Group: apps
+      Version: v1
+      Kind: Deployment

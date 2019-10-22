@@ -14,6 +14,8 @@ import (
 	"github.com/mhrivnak/central-operator/pkg/apis"
 	"github.com/mhrivnak/central-operator/pkg/controller"
 
+	"github.com/operator-framework/operator-sdk/pkg/ansible/proxy"
+	"github.com/operator-framework/operator-sdk/pkg/ansible/proxy/controllermap"
 	"github.com/operator-framework/operator-sdk/pkg/k8sutil"
 	kubemetrics "github.com/operator-framework/operator-sdk/pkg/kube-metrics"
 	"github.com/operator-framework/operator-sdk/pkg/leader"
@@ -108,7 +110,8 @@ func main() {
 	}
 
 	// Setup all Controllers
-	if err := controller.AddToManager(mgr); err != nil {
+	cMap := controllermap.NewControllerMap()
+	if err := controller.AddToManager(mgr, cMap); err != nil {
 		log.Error(err, "")
 		os.Exit(1)
 	}
@@ -141,13 +144,33 @@ func main() {
 		}
 	}
 
+	done := make(chan error)
+	err = proxy.Run(done, proxy.Options{
+		Port:              8888,
+		KubeConfig:        mgr.GetConfig(),
+		Cache:             mgr.GetCache(),
+		RESTMapper:        mgr.GetRESTMapper(),
+		ControllerMap:     cMap,
+		WatchedNamespaces: []string{namespace},
+	})
+	if err != nil {
+		log.Error(err, "Error starting proxy.")
+		os.Exit(1)
+	}
+
 	log.Info("Starting the Cmd.")
 
 	// Start the Cmd
-	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
-		log.Error(err, "Manager exited non-zero")
+	go func() {
+		done <- mgr.Start(signals.SetupSignalHandler())
+	}()
+
+	err = <-done
+	if err != nil {
+		log.Error(err, "Proxy or operator exited with error.")
 		os.Exit(1)
 	}
+	log.Info("Exiting")
 }
 
 // serveCRMetrics gets the Operator/CustomResource GVKs and generates metrics based on those types.

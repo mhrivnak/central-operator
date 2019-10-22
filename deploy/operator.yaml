@@ -11,6 +11,7 @@ spec:
     metadata:
       labels:
         name: central-operator
+        app: central-operator-proxy
     spec:
       serviceAccountName: central-operator
       containers:
@@ -20,6 +21,8 @@ spec:
           command:
           - central-operator
           imagePullPolicy: Always
+          ports:
+            - containerPort: 8888
           env:
             - name: WATCH_NAMESPACE
               valueFrom:
@@ -31,3 +34,16 @@ spec:
                   fieldPath: metadata.name
             - name: OPERATOR_NAME
               value: "central-operator"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: central-operator-proxy
+spec:
+  selector:
+    app: central-operator-proxy
+  ports:
+    - protocol: TCP
+      port: 8888
+      targetPort: 8888

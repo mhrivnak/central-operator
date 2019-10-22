@@ -14,10 +14,11 @@ type WatchSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "operator-sdk generate k8s" to regenerate code after modifying this file
 	// Add custom validation using kubebuilder tags: https://book-v1.book.kubebuilder.io/beyond_basics/generating_crd.html
-	ServiceName string `json:"serviceName"`
-	Group       string `json:"group"`
-	Version     string `json:"version"`
-	Kind        string `json:"kind"`
+	ServiceName  string                    `json:"serviceName"`
+	Group        string                    `json:"group"`
+	Version      string                    `json:"version"`
+	Kind         string                    `json:"kind"`
+	OwnedWatches []schema.GroupVersionKind `json:"ownedWatches,omitempty"`
 }
 
 func (w *WatchSpec) GVK() schema.GroupVersionKind {
