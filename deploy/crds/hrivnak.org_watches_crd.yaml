@@ -29,10 +29,63 @@ spec:
         metadata:
           type: object
         spec:
-          description: WatchSpec defines the desired state of Watch
+          description: WatchSpec defines the desired state of Watch. The provided
+            Group, Version, and Kind will be the primary resource type for a new controller.
+            The controller will watch that GVK with the operator-sdk's GenerationChangedPredicate,
+            so changes only to the primary resource's Status will not cause reconciliation
+            to happen.
+          properties:
+            finalizer:
+              description: 'Finalizer, if set, will cause a finalizer with the given
+                name to be automatically managed on each primary resource. This operator
+                will ensure the finalizer is present until the resource is deleted.
+                Upon deletion, it will call the API as many times as it takes until
+                the API responds with Requeue == false and RequeueAfter set to zero.
+                After that, the finalizer will be automatically removed. WARNING:
+                do not modify this value'
+              type: string
+            group:
+              type: string
+            kind:
+              type: string
+            maxConcurrentReconciles:
+              description: MaxConcurrentReconciles is the maximum number of concurrent
+                Reconciles that should run. Defaults to 1.
+              minimum: 1
+              type: integer
+            ownedWatches:
+              description: OwnedWatches is a list of GVKs for resource types that
+                will have an owner reference to the primary resource and that should
+                be watched by this operator with the "EnqueueRequestForOwner" handler.
+              items:
+                description: GroupVersionKind unambiguously identifies a kind.  It
+                  doesn't anonymously include GroupVersion to avoid automatic coercion.  It
+                  doesn't use a GroupVersion to avoid custom marshalling
+                type: object
+              type: array
+              uniqueItems: true
+            serviceName:
+              description: ServiceName is the Name property of a Service that will
+                be sent an HTTP request to port 80 to implement reconciliation.
+              type: string
+            version:
+              type: string
+          required:
+          - group
+          - kind
+          - maxConcurrentReconciles
+          - serviceName
+          - version
           type: object
         status:
           description: WatchStatus defines the observed state of Watch
+          properties:
+            reason:
+              description: Reason is a human-readable explanation for the State.
+              type: string
+            state:
+              description: State represents the state of a Watch as a single word.
+              type: string
           type: object
       type: object
   version: v1alpha1

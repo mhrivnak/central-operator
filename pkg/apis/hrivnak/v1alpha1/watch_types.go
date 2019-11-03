@@ -37,11 +37,16 @@ type WatchSpec struct {
 	// OwnedWatches is a list of GVKs for resource types that will have an owner
 	// reference to the primary resource and that should be watched by this
 	// operator with the "EnqueueRequestForOwner" handler.
+	// +kubebuilder:validation:UniqueItems=true
 	OwnedWatches []schema.GroupVersionKind `json:"ownedWatches,omitempty"`
+
+	// TODO figure out why the default below isn't working
 
 	// MaxConcurrentReconciles is the maximum number of concurrent Reconciles
 	// that should run. Defaults to 1.
-	MaxConcurrentReconciles int `json:"maxConcurrentReconciles,omitempty"`
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Default=1
+	MaxConcurrentReconciles int `json:"maxConcurrentReconciles"`
 }
 
 // GVK returns the GVK for the primary resource
