@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	hrivnakv1alpha1 "github.com/mhrivnak/central-operator/pkg/apis/hrivnak/v1alpha1"
 	"github.com/operator-framework/operator-sdk/pkg/predicate"
@@ -48,6 +50,7 @@ func Add(mgr manager.Manager, watch *hrivnakv1alpha1.Watch) (controller.Controll
 		scheme:           mgr.GetScheme(),
 		serviceName:      watch.Spec.ServiceName,
 		groupVersionKind: watch.Spec.GVK(),
+		finalizer:        watch.Spec.Finalizer,
 	}
 
 	// Add secondary watches to the scheme
@@ -58,7 +61,12 @@ func Add(mgr manager.Manager, watch *hrivnakv1alpha1.Watch) (controller.Controll
 	}
 
 	// Create a new controller
-	c, err := controller.New(fmt.Sprintf("%v-controller", strings.ToLower(watch.Spec.GVK().String())), mgr, controller.Options{Reconciler: reconciler})
+	opts := controller.Options{
+		Reconciler:              reconciler,
+		MaxConcurrentReconciles: watch.Spec.MaxConcurrentReconciles,
+	}
+	cname := fmt.Sprintf("%v-controller", strings.ToLower(watch.Spec.GVK().String()))
+	c, err := controller.New(cname, mgr, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -97,11 +105,32 @@ type Reconciler struct {
 	scheme           *runtime.Scheme
 	serviceName      string
 	groupVersionKind schema.GroupVersionKind
+	stopped          bool
+	mtx              sync.Mutex
+	finalizer        string
+}
+
+// Stop ensures that the reconciler will not perform any additional actions.
+func (r *Reconciler) Stop() {
+	r.mtx.Lock()
+	defer r.mtx.Unlock()
+	r.stopped = true
+}
+
+// IsStopped returns true iff the reconciler is stopped
+func (r *Reconciler) IsStopped() bool {
+	return r.stopped
 }
 
 // Reconcile by calling an API
 func (r *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, error) {
 	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
+
+	if r.stopped {
+		reqLogger.Info("reconciler is stopped; skipping reconciliation")
+		return reconcile.Result{}, nil
+	}
+
 	reqLogger.Info("Reconciling with API")
 
 	// Fetch the instance to make sure it exists. No sense calling the API if it doesn't.
@@ -119,20 +148,66 @@ func (r *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, err
 		return reconcile.Result{}, err
 	}
 
+	if r.finalizer != "" {
+		if u.GetDeletionTimestamp().IsZero() {
+			// Add finalizer if it's missing
+			if !containsString(u.GetFinalizers(), r.finalizer) {
+				u.SetFinalizers(append(u.GetFinalizers(), r.finalizer))
+				return reconcile.Result{}, r.client.Update(context.TODO(), u)
+			}
+		} else {
+			if containsString(u.GetFinalizers(), r.finalizer) {
+				// Call the API to let it do finalizer work
+				result, err := r.callAPI(request)
+				if err != nil {
+					return result, err
+				}
+				// remove the finalizer only if the API responded without requeueing
+				if result.Requeue == false && result.RequeueAfter == time.Duration(0) {
+					u.SetFinalizers(removeString(u.GetFinalizers(), r.finalizer))
+					return reconcile.Result{}, r.client.Update(context.TODO(), u)
+				}
+				return result, nil
+			}
+			// finalizer not present, so no-op
+			return reconcile.Result{}, nil
+		}
+	}
+	return r.callAPI(request)
+}
+
+func (r *Reconciler) callAPI(request reconcile.Request) (reconcile.Result, error) {
 	b := new(bytes.Buffer)
 	json.NewEncoder(b).Encode(request)
 	url := fmt.Sprintf("http://%s", r.serviceName)
 	response, err := http.Post(url, "application/json; charset=utf-8", b)
 	if err != nil {
-		reqLogger.Error(err, "Failed to access API")
 		return reconcile.Result{}, err
 	}
 	result := reconcile.Result{}
 	err = json.NewDecoder(response.Body).Decode(&result)
 	if err != nil {
-		reqLogger.Error(err, "Could not deserialize response")
 		return result, err
 	}
 
 	return result, nil
+}
+
+func containsString(x []string, y string) bool {
+	for _, value := range x {
+		if value == y {
+			return true
+		}
+	}
+	return false
+}
+
+func removeString(x []string, y string) []string {
+	ret := []string{}
+	for _, value := range x {
+		if value != y {
+			ret = append(ret, value)
+		}
+	}
+	return ret
 }
