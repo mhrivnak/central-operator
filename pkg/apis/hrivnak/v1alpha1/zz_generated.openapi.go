@@ -65,38 +65,67 @@ func schema_pkg_apis_hrivnak_v1alpha1_WatchSpec(ref common.ReferenceCallback) co
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "WatchSpec defines the desired state of Watch",
+				Description: "WatchSpec defines the desired state of Watch. The provided Group, Version, and Kind will be the primary resource type for a new controller. The controller will watch that GVK with the operator-sdk's GenerationChangedPredicate, so changes only to the primary resource's Status will not cause reconciliation to happen.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
-					"ServiceName": {
+					"serviceName": {
 						SchemaProps: spec.SchemaProps{
-							Description: "INSERT ADDITIONAL SPEC FIELDS - desired state of cluster Important: Run \"operator-sdk generate k8s\" to regenerate code after modifying this file Add custom validation using kubebuilder tags: https://book-v1.book.kubebuilder.io/beyond_basics/generating_crd.html",
+							Description: "ServiceName is the Name property of a Service that will be sent an HTTP request to port 80 to implement reconciliation.",
 							Type:        []string{"string"},
 							Format:      "",
 						},
 					},
-					"Group": {
+					"group": {
 						SchemaProps: spec.SchemaProps{
 							Type:   []string{"string"},
 							Format: "",
 						},
 					},
-					"Version": {
+					"version": {
 						SchemaProps: spec.SchemaProps{
 							Type:   []string{"string"},
 							Format: "",
 						},
 					},
-					"Kind": {
+					"kind": {
 						SchemaProps: spec.SchemaProps{
 							Type:   []string{"string"},
 							Format: "",
+						},
+					},
+					"finalizer": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Finalizer, if set, will cause a finalizer with the given name to be automatically managed on each primary resource. This operator will ensure the finalizer is present until the resource is deleted. Upon deletion, it will call the API as many times as it takes until the API responds with Requeue == false and RequeueAfter set to zero. After that, the finalizer will be automatically removed. WARNING: do not modify this value",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"ownedWatches": {
+						SchemaProps: spec.SchemaProps{
+							Description: "OwnedWatches is a list of GVKs for resource types that will have an owner reference to the primary resource and that should be watched by this operator with the \"EnqueueRequestForOwner\" handler.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Ref: ref("k8s.io/apimachinery/pkg/runtime/schema.GroupVersionKind"),
+									},
+								},
+							},
+						},
+					},
+					"maxConcurrentReconciles": {
+						SchemaProps: spec.SchemaProps{
+							Description: "MaxConcurrentReconciles is the maximum number of concurrent Reconciles that should run. Defaults to 1.",
+							Type:        []string{"integer"},
+							Format:      "int32",
 						},
 					},
 				},
-				Required: []string{"ServiceName", "Group", "Version", "Kind"},
+				Required: []string{"serviceName", "group", "version", "kind", "maxConcurrentReconciles"},
 			},
 		},
+		Dependencies: []string{
+			"k8s.io/apimachinery/pkg/runtime/schema.GroupVersionKind"},
 	}
 }
 
@@ -106,6 +135,22 @@ func schema_pkg_apis_hrivnak_v1alpha1_WatchStatus(ref common.ReferenceCallback) 
 			SchemaProps: spec.SchemaProps{
 				Description: "WatchStatus defines the observed state of Watch",
 				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"state": {
+						SchemaProps: spec.SchemaProps{
+							Description: "State represents the state of a Watch as a single word.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"reason": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Reason is a human-readable explanation for the State.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
 			},
 		},
 	}

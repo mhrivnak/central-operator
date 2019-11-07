@@ -3,6 +3,7 @@ package watch
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sync"
 
 	hrivnakv1alpha1 "github.com/mhrivnak/central-operator/pkg/apis/hrivnak/v1alpha1"
@@ -20,6 +21,9 @@ import (
 )
 
 var log = logf.Log.WithName("controller_watch")
+
+// FinalizerName is the string used in the Watch finalizer
+const FinalizerName string = "finalizer.central-operator.hrivnak.org"
 
 /**
 * USER ACTION REQUIRED: This is a scaffold file intended for the user to modify with their own Controller
@@ -99,6 +103,25 @@ func (r *ReconcileWatch) Reconcile(request reconcile.Request) (reconcile.Result,
 		return reconcile.Result{}, err
 	}
 
+	if instance.ObjectMeta.DeletionTimestamp.IsZero() {
+		// Add finalizer if it's missing
+		if !containsString(instance.ObjectMeta.Finalizers, FinalizerName) {
+			instance.ObjectMeta.Finalizers = append(instance.ObjectMeta.Finalizers, FinalizerName)
+			return reconcile.Result{}, r.client.Update(context.TODO(), instance)
+		}
+	} else {
+		// Cleanup then remove finalizer
+		if containsString(instance.ObjectMeta.Finalizers, FinalizerName) {
+			r.ensureAPIControllerStopped(instance)
+
+			// remove finalizer
+			instance.ObjectMeta.Finalizers = removeString(instance.ObjectMeta.Finalizers, FinalizerName)
+			return reconcile.Result{}, r.client.Update(context.TODO(), instance)
+		}
+		// finalizer not present, so no-op
+		return reconcile.Result{}, nil
+	}
+
 	if r.cMap == nil {
 		return reconcile.Result{}, fmt.Errorf("missing controller map")
 	}
@@ -110,7 +133,7 @@ func (r *ReconcileWatch) Reconcile(request reconcile.Request) (reconcile.Result,
 	if r.reconcilers == nil {
 		r.reconcilers = make(map[string]*apicontroller.Reconciler)
 	}
-	_, ok := r.reconcilers[gvk.String()]
+	reconciler, ok := r.reconcilers[gvk.String()]
 	if !ok {
 		controller, reconciler, err := apicontroller.Add(r.mgr, instance)
 		if err != nil {
@@ -122,5 +145,47 @@ func (r *ReconcileWatch) Reconcile(request reconcile.Request) (reconcile.Result,
 		})
 	}
 
+	// update the status if necessary
+	newStatus := hrivnakv1alpha1.WatchStatus{}
+	if reconciler.IsStopped() {
+		newStatus.State = hrivnakv1alpha1.WatchStopped
+		newStatus.Reason = "The operator must be re-started to clear a previously-existing controller for the same GVK"
+	} else {
+		newStatus.State = hrivnakv1alpha1.WatchActive
+		newStatus.Reason = ""
+	}
+	if !reflect.DeepEqual(newStatus, instance.Status) {
+		newInstance := instance.DeepCopy()
+		newInstance.Status = newStatus
+		return reconcile.Result{}, r.client.Status().Update(context.TODO(), newInstance)
+	}
+
 	return reconcile.Result{}, nil
+}
+
+func (r *ReconcileWatch) ensureAPIControllerStopped(instance *hrivnakv1alpha1.Watch) {
+	gvk := instance.Spec.GVK()
+	reconciler, ok := r.reconcilers[gvk.String()]
+	if ok {
+		reconciler.Stop()
+	}
+}
+
+func containsString(x []string, y string) bool {
+	for _, value := range x {
+		if value == y {
+			return true
+		}
+	}
+	return false
+}
+
+func removeString(x []string, y string) []string {
+	ret := []string{}
+	for _, value := range x {
+		if value != y {
+			ret = append(ret, value)
+		}
+	}
+	return ret
 }
